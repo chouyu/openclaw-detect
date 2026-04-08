@@ -28,20 +28,20 @@ print_env_info() {
   # 获取所有非回环 IPv4 (严格匹配点分十进制格式)
   local ipv4s
   if command -v ip >/dev/null; then
-    ipv4s=$(ip -4 addr show up 2>/dev/null | grep 'inet ' | grep -v '127.0.0.1' | awk '{print $2}' | cut -d/ -f1 | tr '\n' ' ')
+    ipv4s=$(ip -4 addr show up 2>/dev/null | grep 'inet ' | grep -v '127.0.0.1' | awk '{print $2}' | cut -d/ -f1 | tr '\n' ' ' || true)
   elif command -v hostname >/dev/null && hostname -I &>/dev/null; then
     # hostname -I 可能包含 IPv6，过滤出仅符合 IPv4 格式的地址
-    ipv4s=$(hostname -I | tr ' ' '\n' | grep -E '^([0-9]{1,3}\.){3}[0-9]{1,3}$' | tr '\n' ' ')
+    ipv4s=$(hostname -I | tr ' ' '\n' | grep -E '^([0-9]{1,3}\.){3}[0-9]{1,3}$' | tr '\n' ' ' || true)
   else
-    ipv4s=$(ifconfig 2>/dev/null | grep 'inet ' | grep -v '127.0.0.1' | awk '{print $2}' | tr '\n' ' ')
+    ipv4s=$(ifconfig 2>/dev/null | grep 'inet ' | grep -v '127.0.0.1' | awk '{print $2}' | tr '\n' ' ' || true)
   fi
   
   # 获取所有全局 IPv6 (排除 fe80 链路本地和回环地址)
   local ipv6s
   if command -v ip >/dev/null; then
-    ipv6s=$(ip -6 addr show scope global up 2>/dev/null | grep 'inet6' | awk '{print $2}' | cut -d/ -f1 | tr '\n' ' ')
+    ipv6s=$(ip -6 addr show scope global up 2>/dev/null | grep 'inet6' | awk '{print $2}' | cut -d/ -f1 | tr '\n' ' ' || true)
   else
-    ipv6s=$(ifconfig 2>/dev/null | grep 'inet6 ' | grep -v '::1' | grep -v 'fe80' | awk '{print $2}' | cut -d% -f1 | tr '\n' ' ')
+    ipv6s=$(ifconfig 2>/dev/null | grep 'inet6 ' | grep -v '::1' | grep -v 'fe80' | awk '{print $2}' | cut -d% -f1 | tr '\n' ' ' || true)
   fi
 
   echo "IP Address (IP地址):"
