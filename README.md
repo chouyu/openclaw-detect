@@ -1,21 +1,17 @@
-```
-██╗  ██╗███╗   ██╗ ██████╗ ███████╗████████╗██╗ ██████╗
-██║ ██╔╝████╗  ██║██╔═══██╗██╔════╝╚══██╔══╝██║██╔════╝
-█████╔╝ ██╔██╗ ██║██║   ██║███████╗   ██║   ██║██║     
-██╔═██╗ ██║╚██╗██║██║   ██║╚════██║   ██║   ██║██║     
-██║  ██╗██║ ╚████║╚██████╔╝███████║   ██║   ██║╚██████╗
-╚═╝  ╚═╝╚═╝  ╚═══╝ ╚═════╝ ╚══════╝   ╚═╝   ╚═╝ ╚═════╝
-```
-
 # OpenClaw Detection Scripts
-
-**By [Knostic](https://knostic.ai/)**
 
 > **Find OpenClaw on managed devices.** Lightweight detection scripts for macOS, Linux, and Windows that check for CLI binaries, app bundles, config files, gateway services, and Docker artifacts. Designed for MDM deployment via Jamf, Intune, JumpCloud, and more.
 
-Also check out:
-- **openclaw-telemetry:** https://github.com/knostic/openclaw-telemetry
-- **Like what we do?** Knostic helps you with visibility and control of your coding agents and MCP/extensions, from Cursor and Claude Code, to Copilot.
+## 🚀 Version v1.1 - Enhanced Edition
+
+This version is an enhanced fork of the original detection scripts with the following improvements:
+
+- **Bilingual Output**: All detection results and summaries are now provided in `English (Chinese)` format.
+- **Environment Diagnostics**: Automatically displays OS version, current user (with privilege check), and all active IPv4/IPv6 addresses.
+- **Process Detection**: Added real-time scanning for active `openclaw` processes to identify manual executions.
+- **Clean UI**: Removed all promotional ASCII art and branding; output starts directly with the detection header.
+- **Robust IP Handling**: Improved logic to correctly separate and display multiple IPv4 and global IPv6 addresses (excluding loopback and link-local).
+- **Interactive PowerShell**: Windows script now remains open after manual execution for easy screenshotting.
 
 ---
 
@@ -34,6 +30,7 @@ Detection scripts for MDM deployment to identify OpenClaw installations on manag
 | Config file (`~/.openclaw/openclaw.json`) | Yes | Yes | Yes |
 | Gateway service (launchd/systemd/schtasks) | Yes | Yes | Yes |
 | Gateway port (default 18789) | Yes | Yes | Yes |
+| Active Process | Yes | Yes | Yes |
 | Docker containers | Yes | Yes | Yes |
 | Docker images | Yes | Yes | Yes |
 
@@ -81,17 +78,27 @@ curl -sL https://raw.githubusercontent.com/chouyu/openclaw-detect/refs/heads/mai
 ## Example Output
 
 ```
-summary: installed-and-running
-platform: darwin
-cli: /usr/local/bin/openclaw
-cli-version: 2026.1.15
-app: /Applications/OpenClaw.app
-state-dir: /Users/alice/.openclaw
-config: /Users/alice/.openclaw/openclaw.json
-gateway-service: gui/501/bot.molt.gateway
-gateway-port: 18789
-docker-container: not-found
-docker-image: not-found
+OpenClaw Detection Script (v1.1)
+
+--- Environment Information (环境基本信息) ---
+OS Version (操作系统版本): Ubuntu 22.04.3 LTS
+Current User (当前用户): user (UID: 1000)
+IP Address (IP地址):
+  IPv4: 192.168.1.100
+  IPv6: 240e:xxx:xxx:xxx
+-------------------------------
+
+summary (检测汇总): installed-and-running (已安装且运行中)
+platform (平台): linux
+cli (命令行工具): /usr/local/bin/openclaw
+cli-version (工具版本): 2026.1.15
+state-dir (状态目录): /home/user/.openclaw
+config (配置文件): /home/user/.openclaw/openclaw.json
+gateway-service (网关服务): openclaw-gateway.service
+process (进程): running
+gateway-port (网关端口): 18789
+docker-container (Docker容器): not-found
+docker-image (Docker镜像): not-found
 ```
 
 ---
@@ -110,7 +117,7 @@ docker-image: not-found
 
 ---
 
-- ## License
+## License
 
 Apache 2.0 — see LICENSE for details.
 
@@ -118,9 +125,18 @@ Apache 2.0 — see LICENSE for details.
 
 # OpenClaw 检测脚本 - 中文说明
 
-**由 [Knostic](https://knostic.ai/) 开发**
-
 > **在受管设备上查找 OpenClaw。** 适用于 macOS、Linux 和 Windows 的轻量级检测脚本，可检查 CLI 二进制文件、应用程序包、配置文件、网关服务和 Docker 伪像。专为通过 Jamf、Intune、JumpCloud 等进行 MDM 部署而设计。
+
+## 🚀 v1.1 增强版 - 主要改进
+
+此版本基于原版检测脚本进行了以下深度优化：
+
+- **中英双语输出**：所有检测结果和汇总状态均采用 `English (中文)` 格式展示。
+- **环境信息诊断**：自动显示操作系统详细版本、当前运行用户（及权限状态）以及所有活跃的 IPv4 和 IPv6 地址。
+- **进程实时检测**：新增对 `openclaw` 运行进程的扫描，防止绕过服务直接手动运行。
+- **清爽输出界面**：移除了所有原版的广告内容，脚本首行直接输出检测版本标题。
+- **多 IP 逻辑优化**：改进了 IP 检测算法，能够准确分离并展示多个内网/公网 IPv4 及全局 IPv6 地址（排除回环及链路本地地址）。
+- **PowerShell 结果保留**：Windows 脚本在手动运行时会在完成后暂停，方便截屏。
 
 ## 检测内容
 
@@ -133,6 +149,7 @@ Apache 2.0 — see LICENSE for details.
 | 配置文件 (`~/.openclaw/openclaw.json`) | 是 | 是 | 是 |
 | 网关服务 (launchd/systemd/schtasks) | 是 | 是 | 是 |
 | 网关端口 (默认 18789) | 是 | 是 | 是 |
+| 活跃进程检测 | 是 | 是 | 是 |
 | Docker 容器 | 是 | 是 | 是 |
 | Docker 镜像 | 是 | 是 | 是 |
 
@@ -158,10 +175,6 @@ curl -sL https://raw.githubusercontent.com/chouyu/openclaw-detect/refs/heads/mai
 iwr -useb https://raw.githubusercontent.com/chouyu/openclaw-detect/refs/heads/main/detect-openclaw.ps1 | iex
 ```
 
-### 无 curl 环境
-
-复制 [`detect-openclaw.sh`](detect-openclaw.sh) (macOS/Linux) 或 [`detect-openclaw.ps1`](detect-openclaw.ps1) (Windows) 并直接运行。
-
 ### 以 root/管理员身份运行
 
 以提升的权限运行将扫描所有用户目录：
@@ -169,27 +182,3 @@ iwr -useb https://raw.githubusercontent.com/chouyu/openclaw-detect/refs/heads/ma
 ```bash
 curl -sL https://raw.githubusercontent.com/chouyu/openclaw-detect/refs/heads/main/detect-openclaw.sh | sudo bash
 ```
-
-## 环境变量
-
-| 变量 | 默认值 | 描述 |
-|----------|---------|-------------|
-| `OPENCLAW_PROFILE` | (无) | 多实例设置的配置文件名称 |
-| `OPENCLAW_GATEWAY_PORT` | 18789 | 要检查的网关端口 |
-
-## 输出示例
-
-```
-summary: installed-and-running (已安装且运行中)
-platform (平台): darwin
-cli (命令行工具): /usr/local/bin/openclaw
-cli-version (工具版本): 2026.1.15
-app (应用程序): /Applications/OpenClaw.app
-state-dir (状态目录): /Users/alice/.openclaw
-config (配置文件): /Users/alice/.openclaw/openclaw.json
-gateway-service (网关服务): gui/501/bot.molt.gateway
-gateway-port (网关端口): 18789
-docker-container (Docker容器): not-found
-docker-image (Docker镜像): not-found
-```
-

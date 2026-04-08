@@ -8,7 +8,7 @@ PROFILE="${OPENCLAW_PROFILE:-}"
 PORT="${OPENCLAW_GATEWAY_PORT:-18789}"
 
 print_banner() {
-  echo 'OpenClaw Detection Script'
+  echo 'OpenClaw Detection Script (v1.1)'
   echo ''
 }
 

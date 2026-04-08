@@ -8,7 +8,7 @@ $Port = if ($env:OPENCLAW_GATEWAY_PORT) { $env:OPENCLAW_GATEWAY_PORT } else { 18
 $script:Output = [System.Collections.ArrayList]::new()
 
 function Show-Banner {
-    Write-Output "OpenClaw Detection Script`n"
+    Write-Output "OpenClaw Detection Script (v1.1)`n"
 }
 
 Show-Banner
