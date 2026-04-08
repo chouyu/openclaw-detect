@@ -5,7 +5,7 @@ $ErrorActionPreference = "Stop"
 
 $script:Profile = $env:OPENCLAW_PROFILE
 $Port = if ($env:OPENCLAW_GATEWAY_PORT) { $env:OPENCLAW_GATEWAY_PORT } else { 18789 }
-$script:Output = [System.Collections.ArrayList]::new()
+$script:Output = New-Object System.Collections.ArrayList
 
 function Show-Banner {
     Write-Output "OpenClaw Detection Script (v1.1)`n"
@@ -16,24 +16,47 @@ Show-Banner
 function Show-EnvInfo {
     Write-Output "--- Environment Information (环境基本信息) ---"
     try {
-        $os = Get-CimInstance Win32_OperatingSystem
+        $os = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
         Write-Output "OS Version (操作系统版本): $($os.Caption) ($($os.Version))"
     } catch {
-        Write-Output "OS Version (操作系统版本): $($PSVersionTable.OS)"
+        try {
+            $os = Get-WmiObject Win32_OperatingSystem -ErrorAction Stop
+            Write-Output "OS Version (操作系统版本): $($os.Caption) ($($os.Version))"
+        } catch {
+            Write-Output "OS Version (操作系统版本): $([System.Environment]::OSVersion)"
+        }
     }
     $currentUser = [Security.Principal.WindowsIdentity]::GetCurrent().Name
     $isAdmin = if ([Security.Principal.WindowsIdentity]::GetCurrent().Groups -match 'S-1-5-32-544') { "Admin" } else { "User" }
     Write-Output "Current User (当前用户): $currentUser ($isAdmin)"
     
     try {
-        # 获取非回环、非 APIPA、非链路本地的所有 IP 地址
-        $ips = Get-NetIPAddress | Where-Object { 
-            $_.InterfaceAlias -notmatch 'Loopback' -and 
-            $_.IPAddress -notmatch '^169\.254' -and 
-            $_.IPAddress -notmatch '^fe80' 
+        # 尝试使用 Get-NetIPAddress (Windows 8/Server 2012+)
+        if (Get-Command Get-NetIPAddress -ErrorAction SilentlyContinue) {
+            $ips = Get-NetIPAddress | Where-Object { 
+                $_.InterfaceAlias -notmatch 'Loopback' -and 
+                $_.IPAddress -notmatch '^169\.254' -and 
+                $_.IPAddress -notmatch '^fe80' 
+            }
+            $ipv4List = ($ips | Where-Object { $_.AddressFamily -eq 'IPv4' }).IPAddress -join ", "
+            $ipv6List = ($ips | Where-Object { $_.AddressFamily -eq 'IPv6' }).IPAddress -join ", "
+        } else {
+            # 备选方案：通过 WMI 获取 (Windows 7/Server 2008 R2)
+            $configs = Get-WmiObject Win32_NetworkAdapterConfiguration | Where-Object { $_.IPEnabled -eq $true }
+            $ipv4s = New-Object System.Collections.ArrayList
+            $ipv6s = New-Object System.Collections.ArrayList
+            foreach ($conf in $configs) {
+                foreach ($addr in $conf.IPAddress) {
+                    if ($addr -match '^([0-9]{1,3}\.){3}[0-9]{1,3}$') {
+                        if ($addr -notmatch '^127\.' -and $addr -notmatch '^169\.254') { [void]$ipv4s.Add($addr) }
+                    } else {
+                        if ($addr -notmatch '^::1' -and $addr -notmatch '^fe80') { [void]$ipv6s.Add($addr) }
+                    }
+                }
+            }
+            $ipv4List = $ipv4s -join ", "
+            $ipv6List = $ipv6s -join ", "
         }
-        $ipv4List = ($ips | Where-Object { $_.AddressFamily -eq 'IPv4' }).IPAddress -join ", "
-        $ipv6List = ($ips | Where-Object { $_.AddressFamily -eq 'IPv6' }).IPAddress -join ", "
         
         Write-Output "IP Address (IP地址):"
         Write-Output "  IPv4: $(if ($ipv4List) { $ipv4List } else { 'N/A' })"
@@ -62,7 +85,8 @@ function Get-StateDir {
 
 function Get-UsersToCheck {
     if ([Security.Principal.WindowsIdentity]::GetCurrent().Groups -match 'S-1-5-32-544') {
-        Get-ChildItem "C:\Users" -Directory | Where-Object { $_.Name -notin @('Public', 'Default', 'Default User', 'All Users') } | ForEach-Object { $_.Name }
+        $excluded = @('Public', 'Default', 'Default User', 'All Users')
+        Get-ChildItem "C:\Users" -Directory | Where-Object { $excluded -notcontains $_.Name } | ForEach-Object { $_.Name }
     } else {
         $env:USERNAME
     }
