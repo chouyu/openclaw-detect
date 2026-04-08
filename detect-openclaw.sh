@@ -8,18 +8,48 @@ PROFILE="${OPENCLAW_PROFILE:-}"
 PORT="${OPENCLAW_GATEWAY_PORT:-18789}"
 
 print_banner() {
-  echo ''
-  echo '  _  ___  _  ___  ___  _____ ___ ___'
-  echo ' | |/ / \| |/ _ \/ __|_   _|_ _/ __|'
-  echo ' |   <| .  | (_) \__ \ | |  | | (__ '
-  echo ' |_|\_\_|\_|\___/|___/ |_| |___\___|'
-  echo ''
-  echo ' Open source from Knostic - https://knostic.ai'
-  echo ' OpenClaw Detection Script'
+  echo 'OpenClaw Detection Script'
   echo ''
 }
 
 print_banner
+
+print_env_info() {
+  local platform="$1"
+  echo "--- Environment Information (环境基本信息) ---"
+  echo -n "OS Version (操作系统版本): "
+  case "$platform" in
+    darwin) sw_vers | paste -sd ' ' - ;;
+    linux) grep "PRETTY_NAME" /etc/os-release | cut -d= -f2 | tr -d '"' || uname -sr ;;
+    *) uname -sr ;;
+  esac
+  echo "Current User (当前用户): $(whoami) (UID: $EUID)"
+  
+  # 获取所有非回环 IPv4 (严格匹配点分十进制格式)
+  local ipv4s
+  if command -v ip >/dev/null; then
+    ipv4s=$(ip -4 addr show up 2>/dev/null | grep 'inet ' | grep -v '127.0.0.1' | awk '{print $2}' | cut -d/ -f1 | tr '\n' ' ')
+  elif command -v hostname >/dev/null && hostname -I &>/dev/null; then
+    # hostname -I 可能包含 IPv6，过滤出仅符合 IPv4 格式的地址
+    ipv4s=$(hostname -I | tr ' ' '\n' | grep -E '^([0-9]{1,3}\.){3}[0-9]{1,3}$' | tr '\n' ' ')
+  else
+    ipv4s=$(ifconfig 2>/dev/null | grep 'inet ' | grep -v '127.0.0.1' | awk '{print $2}' | tr '\n' ' ')
+  fi
+  
+  # 获取所有全局 IPv6 (排除 fe80 链路本地和回环地址)
+  local ipv6s
+  if command -v ip >/dev/null; then
+    ipv6s=$(ip -6 addr show scope global up 2>/dev/null | grep 'inet6' | awk '{print $2}' | cut -d/ -f1 | tr '\n' ' ')
+  else
+    ipv6s=$(ifconfig 2>/dev/null | grep 'inet6 ' | grep -v '::1' | grep -v 'fe80' | awk '{print $2}' | cut -d% -f1 | tr '\n' ' ')
+  fi
+
+  echo "IP Address (IP地址):"
+  echo "  IPv4: ${ipv4s:-N/A}"
+  echo "  IPv6: ${ipv6s:-N/A}"
+  echo "-------------------------------"
+  echo ""
+}
 
 detect_platform() {
   case "$(uname -s)" in
@@ -40,7 +70,7 @@ get_state_dir() {
 
 get_users_to_check() {
   local platform="$1"
-  if [[ $EUID -eq 0 ]]; then
+  if [[ "$EUID" -eq 0 ]]; then
     case "$platform" in
       darwin)
         for dir in /Users/*; do
@@ -169,6 +199,16 @@ check_systemd_service() {
   fi
 }
 
+check_process() {
+  if pgrep -x "openclaw" >/dev/null; then
+    echo "running"
+    return 0
+  else
+    echo "not-running"
+    return 1
+  fi
+}
+
 get_configured_port() {
   local config_file="$1"
   if [[ -f "$config_file" ]]; then
@@ -203,33 +243,35 @@ check_docker_images() {
 }
 
 main() {
-  local platform cli_found=false app_found=false state_found=false service_running=false port_listening=false
+  local platform cli_found=false app_found=false state_found=false service_running=false port_listening=false process_running=false
   local output=""
 
   out() { output+="$1"$'\n'; }
 
   platform=$(detect_platform)
-  out "platform: $platform"
-
+  
   if [[ "$platform" == "unknown" ]]; then
     echo "summary: error"
-    echo "$output"
+    echo "Error: Unknown platform $(uname -s)"
     exit 2
   fi
+
+  print_env_info "$platform"
+  out "platform (平台): $platform"
 
   # check global CLI locations first
   local cli_result=""
   cli_result=$(check_cli_in_path) || cli_result=$(check_cli_global) || true
   if [[ -n "$cli_result" ]]; then
     cli_found=true
-    out "cli: $cli_result"
-    out "cli-version: $("$cli_result" --version 2>/dev/null | head -1 || echo "unknown")"
+    out "cli (命令行工具): $cli_result"
+    out "cli-version (工具版本): $("$cli_result" --version 2>/dev/null | head -1 || echo "unknown")"
   fi
 
   if [[ "$platform" == "darwin" ]]; then
     local app_result
     app_result=$(check_mac_app) && app_found=true || app_found=false
-    out "app: $app_result"
+    out "app (应用程序): $app_result"
   fi
 
   local users
@@ -237,7 +279,7 @@ main() {
   local multi_user=false
   local user_count
   user_count=$(echo "$users" | wc -l | tr -d ' ')
-  [[ $user_count -gt 1 ]] && multi_user=true
+  [[ "$user_count" -gt 1 ]] && multi_user=true
 
   local ports_to_check="$PORT"
 
@@ -246,76 +288,80 @@ main() {
     home_dir=$(get_home_dir "$user" "$platform")
     state_dir=$(get_state_dir "$home_dir")
 
-    if $multi_user; then
-      out "user: $user"
+    if "$multi_user"; then
+      out "user (用户): $user"
       # check user-specific CLI if not already found
-      if ! $cli_found; then
+      if ! "$cli_found"; then
         local user_cli
         user_cli=$(check_cli_for_user "$home_dir") || true
         if [[ -n "$user_cli" ]]; then
           cli_found=true
-          out "  cli: $user_cli"
-          out "  cli-version: $("$user_cli" --version 2>/dev/null | head -1 || echo "unknown")"
+          out "  cli (命令行工具): $user_cli"
+          out "  cli-version (工具版本): $("$user_cli" --version 2>/dev/null | head -1 || echo "unknown")"
         fi
       fi
       local state_result
       state_result=$(check_state_dir "$state_dir") && state_found=true
-      out "  state-dir: $state_result"
+      out "  state-dir (状态目录): $state_result"
       local config_result
       config_result=$(check_config "$state_dir")
-      out "  config: $config_result"
+      out "  config (配置文件): $config_result"
       local configured_port
       configured_port=$(get_configured_port "${state_dir}/openclaw.json")
       if [[ -n "$configured_port" ]]; then
-        out "  config-port: $configured_port"
+        out "  config-port (配置端口): $configured_port"
         ports_to_check="$ports_to_check $configured_port"
       fi
     else
       # single user mode - check user CLI
-      if ! $cli_found; then
+      if ! "$cli_found"; then
         local user_cli
         user_cli=$(check_cli_for_user "$home_dir") || true
         if [[ -n "$user_cli" ]]; then
           cli_found=true
-          out "cli: $user_cli"
-          out "cli-version: $("$user_cli" --version 2>/dev/null | head -1 || echo "unknown")"
+          out "cli (命令行工具): $user_cli"
+          out "cli-version (工具版本): $("$user_cli" --version 2>/dev/null | head -1 || echo "unknown")"
         fi
       fi
-      if ! $cli_found; then
-        out "cli: not-found"
-        out "cli-version: n/a"
+      if ! "$cli_found"; then
+        out "cli (命令行工具): not-found"
+        out "cli-version (工具版本): n/a"
       fi
       local state_result
       state_result=$(check_state_dir "$state_dir") && state_found=true
-      out "state-dir: $state_result"
-      out "config: $(check_config "$state_dir")"
+      out "state-dir (状态目录): $state_result"
+      out "config (配置文件): $(check_config "$state_dir")"
       local configured_port
       configured_port=$(get_configured_port "${state_dir}/openclaw.json")
       if [[ -n "$configured_port" ]]; then
-        out "config-port: $configured_port"
+        out "config-port (配置端口): $configured_port"
         ports_to_check="$ports_to_check $configured_port"
       fi
     fi
   done
 
   # print cli not-found for multi-user if none found
-  if $multi_user && ! $cli_found; then
-    out "cli: not-found"
-    out "cli-version: n/a"
+  if "$multi_user" && ! "$cli_found"; then
+    out "cli (命令行工具): not-found"
+    out "cli-version (工具版本): n/a"
   fi
 
   case "$platform" in
     darwin)
       local service_result
       service_result=$(check_launchd_service) && service_running=true || service_running=false
-      out "gateway-service: $service_result"
+      out "gateway-service (网关服务): $service_result"
       ;;
     linux)
       local service_result
       service_result=$(check_systemd_service) && service_running=true || service_running=false
-      out "gateway-service: $service_result"
+      out "gateway-service (网关服务): $service_result"
       ;;
   esac
+
+  local process_result
+  process_result=$(check_process) && process_running=true || process_running=false
+  out "process (进程): $process_result"
 
   # check all unique ports (default + any configured in user configs)
   local unique_ports listening_port=""
@@ -327,53 +373,55 @@ main() {
       break
     fi
   done
-  if $port_listening; then
-    out "gateway-port: $listening_port"
+  if "$port_listening"; then
+    out "gateway-port (网关端口): $listening_port"
   else
-    out "gateway-port: not-listening"
+    out "gateway-port (网关端口): not-listening"
   fi
 
   local docker_containers docker_images docker_running=false docker_installed=false
   docker_containers=$(check_docker_containers)
   if [[ -n "$docker_containers" ]]; then
     docker_running=true
-    out "docker-container: $docker_containers"
+    out "docker-container (Docker容器): $docker_containers"
   else
-    out "docker-container: not-found"
+    out "docker-container (Docker容器): not-found"
   fi
 
   docker_images=$(check_docker_images)
   if [[ -n "$docker_images" ]]; then
     docker_installed=true
-    out "docker-image: $docker_images"
+    out "docker-image (Docker镜像): $docker_images"
   else
-    out "docker-image: not-found"
+    out "docker-image (Docker镜像): not-found"
   fi
 
   local installed=false running=false
 
-  if $cli_found || $app_found || $state_found || $docker_installed; then
+  if "$cli_found" || "$app_found" || "$state_found" || "$docker_installed"; then
     installed=true
   fi
 
-  if $service_running || $port_listening || $docker_running; then
+  if "$service_running" || "$port_listening" || "$docker_running" || "$process_running"; then
     running=true
   fi
 
   # exit codes: 0=not-installed (clean), 1=found (non-compliant), 2=error
-  if ! $installed; then
-    echo "summary: not-installed"
+  if ! "$installed"; then
+    echo "summary (检测汇总): not-installed (未安装)"
     printf "%s" "$output"
     exit 0
-  elif $running; then
-    echo "summary: installed-and-running"
+  elif "$running"; then
+    echo "summary (检测汇总): installed-and-running (已安装且运行中)"
     printf "%s" "$output"
     exit 1
   else
-    echo "summary: installed-not-running"
+    echo "summary (检测汇总): installed-not-running (已安装但未运行)"
     printf "%s" "$output"
     exit 1
   fi
 }
+
+
 
 main

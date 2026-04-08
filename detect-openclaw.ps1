@@ -8,21 +8,44 @@ $Port = if ($env:OPENCLAW_GATEWAY_PORT) { $env:OPENCLAW_GATEWAY_PORT } else { 18
 $script:Output = [System.Collections.ArrayList]::new()
 
 function Show-Banner {
-    $banner = @"
-
-  _  ___  _  ___  ___  _____ ___ ___
- | |/ / \| |/ _ \/ __|_   _|_ _/ __|
- | ' <| .  | (_) \__ \ | |  | | (__
- |_|\_\_|\_|\___/|___/ |_| |___\___|
-
- Open source from Knostic - https://knostic.ai
- OpenClaw Detection Script
-
-"@
-    Write-Output $banner
+    Write-Output "OpenClaw Detection Script`n"
 }
 
 Show-Banner
+
+function Show-EnvInfo {
+    Write-Output "--- Environment Information (环境基本信息) ---"
+    try {
+        $os = Get-CimInstance Win32_OperatingSystem
+        Write-Output "OS Version (操作系统版本): $($os.Caption) ($($os.Version))"
+    } catch {
+        Write-Output "OS Version (操作系统版本): $($PSVersionTable.OS)"
+    }
+    $currentUser = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+    $isAdmin = if ([Security.Principal.WindowsIdentity]::GetCurrent().Groups -match 'S-1-5-32-544') { "Admin" } else { "User" }
+    Write-Output "Current User (当前用户): $currentUser ($isAdmin)"
+    
+    try {
+        # 获取非回环、非 APIPA、非链路本地的所有 IP 地址
+        $ips = Get-NetIPAddress | Where-Object { 
+            $_.InterfaceAlias -notmatch 'Loopback' -and 
+            $_.IPAddress -notmatch '^169\.254' -and 
+            $_.IPAddress -notmatch '^fe80' 
+        }
+        $ipv4List = ($ips | Where-Object { $_.AddressFamily -eq 'IPv4' }).IPAddress -join ", "
+        $ipv6List = ($ips | Where-Object { $_.AddressFamily -eq 'IPv6' }).IPAddress -join ", "
+        
+        Write-Output "IP Address (IP地址):"
+        Write-Output "  IPv4: $(if ($ipv4List) { $ipv4List } else { 'N/A' })"
+        Write-Output "  IPv6: $(if ($ipv6List) { $ipv6List } else { 'N/A' })"
+    } catch {
+        Write-Output "IP Address (IP地址): Unknown"
+    }
+    Write-Output "-------------------------------"
+    Write-Output ""
+}
+
+Show-EnvInfo
 
 function Out {
     param([string]$Line)
@@ -133,6 +156,16 @@ function Test-ScheduledTask {
     return $null
 }
 
+function Test-Process {
+    try {
+        $proc = Get-Process -Name "openclaw" -ErrorAction SilentlyContinue
+        if ($proc) {
+            return "running"
+        }
+    } catch {}
+    return "not-running"
+}
+
 function Test-GatewayPort {
     param([int]$PortNum)
     try {
@@ -172,16 +205,17 @@ function Main {
     $stateFound = $false
     $serviceRunning = $false
     $portListening = $false
+    $processRunning = $false
 
-    Out "platform: windows"
+    Out "platform (平台): windows"
 
     # check global CLI locations first
     $cliPath = Test-CliInPath
     if (-not $cliPath) { $cliPath = Test-CliGlobal }
     if ($cliPath) {
         $cliFound = $true
-        Out "cli: $cliPath"
-        Out "cli-version: $(Get-CliVersion $cliPath)"
+        Out "cli (命令行工具): $cliPath"
+        Out "cli-version (工具版本): $(Get-CliVersion $cliPath)"
     }
 
     $users = @(Get-UsersToCheck)
@@ -194,30 +228,30 @@ function Main {
         $configFile = Join-Path $stateDir "openclaw.json"
 
         if ($multiUser) {
-            Out "user: $user"
+            Out "user (用户): $user"
             # check user-specific CLI if not already found
             if (-not $cliFound) {
                 $userCli = Test-CliForUser $homeDir
                 if ($userCli) {
                     $cliFound = $true
-                    Out "  cli: $userCli"
-                    Out "  cli-version: $(Get-CliVersion $userCli)"
+                    Out "  cli (命令行工具): $userCli"
+                    Out "  cli-version (工具版本): $(Get-CliVersion $userCli)"
                 }
             }
             if (Test-StateDir $stateDir) {
-                Out "  state-dir: $stateDir"
+                Out "  state-dir (状态目录): $stateDir"
                 $stateFound = $true
             } else {
-                Out "  state-dir: not-found"
+                Out "  state-dir (状态目录): not-found"
             }
             if (Test-Config $stateDir) {
-                Out "  config: $configFile"
+                Out "  config (配置文件): $configFile"
             } else {
-                Out "  config: not-found"
+                Out "  config (配置文件): not-found"
             }
             $configPort = Get-ConfiguredPort $configFile
             if ($configPort) {
-                Out "  config-port: $configPort"
+                Out "  config-port (配置端口): $configPort"
                 $portsToCheck += [int]$configPort
             }
         } else {
@@ -226,28 +260,28 @@ function Main {
                 $userCli = Test-CliForUser $homeDir
                 if ($userCli) {
                     $cliFound = $true
-                    Out "cli: $userCli"
-                    Out "cli-version: $(Get-CliVersion $userCli)"
+                    Out "cli (命令行工具): $userCli"
+                    Out "cli-version (工具版本): $(Get-CliVersion $userCli)"
                 }
             }
             if (-not $cliFound) {
-                Out "cli: not-found"
-                Out "cli-version: n/a"
+                Out "cli (命令行工具): not-found"
+                Out "cli-version (工具版本): n/a"
             }
             if (Test-StateDir $stateDir) {
-                Out "state-dir: $stateDir"
+                Out "state-dir (状态目录): $stateDir"
                 $stateFound = $true
             } else {
-                Out "state-dir: not-found"
+                Out "state-dir (状态目录): not-found"
             }
             if (Test-Config $stateDir) {
-                Out "config: $configFile"
+                Out "config (配置文件): $configFile"
             } else {
-                Out "config: not-found"
+                Out "config (配置文件): not-found"
             }
             $configPort = Get-ConfiguredPort $configFile
             if ($configPort) {
-                Out "config-port: $configPort"
+                Out "config-port (配置端口): $configPort"
                 $portsToCheck += [int]$configPort
             }
         }
@@ -255,16 +289,24 @@ function Main {
 
     # print cli not-found for multi-user if none found
     if ($multiUser -and -not $cliFound) {
-        Out "cli: not-found"
-        Out "cli-version: n/a"
+        Out "cli (命令行工具): not-found"
+        Out "cli-version (工具版本): n/a"
     }
 
     $taskResult = Test-ScheduledTask
     if ($taskResult) {
-        Out "gateway-service: $taskResult"
+        Out "gateway-service (网关服务): $taskResult"
         $serviceRunning = $true
     } else {
-        Out "gateway-service: not-scheduled"
+        Out "gateway-service (网关服务): not-scheduled"
+    }
+
+    $processResult = Test-Process
+    if ($processResult -eq "running") {
+        Out "process (进程): running"
+        $processRunning = $true
+    } else {
+        Out "process (进程): not-running"
     }
 
     $uniquePorts = $portsToCheck | Sort-Object -Unique
@@ -277,47 +319,54 @@ function Main {
         }
     }
     if ($portListening) {
-        Out "gateway-port: $listeningPort"
+        Out "gateway-port (网关端口): $listeningPort"
     } else {
-        Out "gateway-port: not-listening"
+        Out "gateway-port (网关端口): not-listening"
     }
 
     $dockerContainers = Get-DockerContainers
     $dockerRunning = $false
     if ($dockerContainers) {
         $dockerRunning = $true
-        Out "docker-container: $dockerContainers"
+        Out "docker-container (Docker容器): $dockerContainers"
     } else {
-        Out "docker-container: not-found"
+        Out "docker-container (Docker容器): not-found"
     }
 
     $dockerImages = Get-DockerImages
     $dockerInstalled = $false
     if ($dockerImages) {
         $dockerInstalled = $true
-        Out "docker-image: $dockerImages"
+        Out "docker-image (Docker镜像): $dockerImages"
     } else {
-        Out "docker-image: not-found"
+        Out "docker-image (Docker镜像): not-found"
     }
 
     $installed = $cliFound -or $stateFound -or $dockerInstalled
-    $running = $serviceRunning -or $portListening -or $dockerRunning
+    $running = $serviceRunning -or $portListening -or $dockerRunning -or $processRunning
 
     # exit codes: 0=not-installed (clean), 1=found (non-compliant), 2=error
     if (-not $installed) {
-        Write-Output "summary: not-installed"
+        Write-Output "summary (检测汇总): not-installed (未安装)"
         $script:Output | ForEach-Object { Write-Output $_ }
-        exit 0
+        $exitCode = 0
     } elseif ($running) {
-        Write-Output "summary: installed-and-running"
+        Write-Output "summary (检测汇总): installed-and-running (已安装且运行中)"
         $script:Output | ForEach-Object { Write-Output $_ }
-        exit 1
+        $exitCode = 1
     } else {
-        Write-Output "summary: installed-not-running"
+        Write-Output "summary (检测汇总): installed-not-running (已安装但未运行)"
         $script:Output | ForEach-Object { Write-Output $_ }
-        exit 1
+        $exitCode = 1
     }
+
+    if ($Host.Name -eq "ConsoleHost") {
+        Write-Host "`n[Detection Completed] Press Enter to exit (检测完成，按回车键退出)..." -ForegroundColor Cyan
+        Read-Host
+    }
+    exit $exitCode
 }
+
 
 try {
     Main

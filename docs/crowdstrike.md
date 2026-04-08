@@ -18,12 +18,12 @@ CrowdStrike Falcon Real Time Response (RTR) allows you to run custom scripts on 
 
 **macOS/Linux (Bash/Zsh):**
 ```bash
-curl -sL https://raw.githubusercontent.com/knostic/openclaw-detect/refs/heads/main/detect-openclaw.sh | bash
+curl -sL https://raw.githubusercontent.com/chouyu/openclaw-detect/refs/heads/main/detect-openclaw.sh | bash
 ```
 
 **Windows (PowerShell):**
 ```powershell
-iwr -useb https://raw.githubusercontent.com/knostic/openclaw-detect/refs/heads/main/detect-openclaw.ps1 | iex
+iwr -useb https://raw.githubusercontent.com/chouyu/openclaw-detect/refs/heads/main/detect-openclaw.ps1 | iex
 ```
 
 5. Click **Save**

@@ -13,7 +13,7 @@ Addigy allows you to monitor for OpenClaw installations using Custom Facts and M
    - **Language of Script:** Bash (default hashbang)
    - **Script:**
      ```bash
-     OUTPUT=$(curl -sL https://raw.githubusercontent.com/knostic/openclaw-detect/refs/heads/main/detect-openclaw.sh | bash 2>&1)
+     OUTPUT=$(curl -sL https://raw.githubusercontent.com/chouyu/openclaw-detect/refs/heads/main/detect-openclaw.sh | bash 2>&1)
      echo "$OUTPUT" | head -1 | cut -d: -f2 | tr -d ' '
      ```
 4. Click **Save**
