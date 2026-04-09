@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# openclaw detection script for mdm deployment
+# openclaw detection script for mdm deployment (v1.1)
 # exit codes: 0=not-installed (clean), 1=found (non-compliant), 2=error
 
 set -euo pipefail
@@ -25,18 +25,17 @@ print_env_info() {
   esac
   echo "Current User (当前用户): $(whoami) (UID: $EUID)"
   
-  # 获取所有非回环 IPv4 (严格匹配点分十进制格式)
+  # 获取所有非回环 IPv4
   local ipv4s
   if command -v ip >/dev/null; then
     ipv4s=$(ip -4 addr show up 2>/dev/null | grep 'inet ' | grep -v '127.0.0.1' | awk '{print $2}' | cut -d/ -f1 | tr '\n' ' ' || true)
   elif command -v hostname >/dev/null && hostname -I &>/dev/null; then
-    # hostname -I 可能包含 IPv6，过滤出仅符合 IPv4 格式的地址
     ipv4s=$(hostname -I | tr ' ' '\n' | grep -E '^([0-9]{1,3}\.){3}[0-9]{1,3}$' | tr '\n' ' ' || true)
   else
     ipv4s=$(ifconfig 2>/dev/null | grep 'inet ' | grep -v '127.0.0.1' | awk '{print $2}' | tr '\n' ' ' || true)
   fi
   
-  # 获取所有全局 IPv6 (排除 fe80 链路本地和回环地址)
+  # 获取所有全局 IPv6
   local ipv6s
   if command -v ip >/dev/null; then
     ipv6s=$(ip -6 addr show scope global up 2>/dev/null | grep 'inet6' | awk '{print $2}' | cut -d/ -f1 | tr '\n' ' ' || true)
@@ -145,7 +144,7 @@ check_mac_app() {
     echo "$app_path"
     return 0
   else
-    echo "not-found"
+    echo "not-found (未找到)"
     return 1
   fi
 }
@@ -156,7 +155,7 @@ check_state_dir() {
     echo "$state_dir"
     return 0
   else
-    echo "not-found"
+    echo "not-found (未找到)"
     return 1
   fi
 }
@@ -166,7 +165,7 @@ check_config() {
   if [[ -f "$config_file" ]]; then
     echo "$config_file"
   else
-    echo "not-found"
+    echo "not-found (未找到)"
   fi
 }
 
@@ -181,7 +180,7 @@ check_launchd_service() {
   if launchctl print "gui/${uid}/${label}" &>/dev/null; then
     echo "gui/${uid}/${label}"
   else
-    echo "not-loaded"
+    echo "not-loaded (未加载)"
   fi
 }
 
@@ -195,16 +194,16 @@ check_systemd_service() {
   if systemctl --user is-active "$service" &>/dev/null; then
     echo "$service"
   else
-    echo "inactive"
+    echo "inactive (未激活)"
   fi
 }
 
 check_process() {
   if pgrep -x "openclaw" >/dev/null; then
-    echo "running"
+    echo "running (运行中)"
     return 0
   else
-    echo "not-running"
+    echo "not-running (未运行)"
     return 1
   fi
 }
@@ -212,7 +211,6 @@ check_process() {
 get_configured_port() {
   local config_file="$1"
   if [[ -f "$config_file" ]]; then
-    # extract port from json without jq (mdm environments may not have it)
     grep -o '"port"[[:space:]]*:[[:space:]]*[0-9]*' "$config_file" 2>/dev/null | head -1 | grep -o '[0-9]*$' || true
   fi
 }
@@ -220,10 +218,10 @@ get_configured_port() {
 check_gateway_port() {
   local port="$1"
   if nc -z localhost "$port" &>/dev/null; then
-    echo "listening"
+    echo "listening (正在监听)"
     return 0
   else
-    echo "not-listening"
+    echo "not-listening (未监听)"
     return 1
   fi
 }
@@ -251,7 +249,7 @@ main() {
   platform=$(detect_platform)
   
   if [[ "$platform" == "unknown" ]]; then
-    echo "summary: error"
+    echo "summary (检测汇总): error (错误)"
     echo "Error: Unknown platform $(uname -s)"
     exit 2
   fi
@@ -259,7 +257,6 @@ main() {
   print_env_info "$platform"
   out "platform (平台): $platform"
 
-  # check global CLI locations first
   local cli_result=""
   cli_result=$(check_cli_in_path) || cli_result=$(check_cli_global) || true
   if [[ -n "$cli_result" ]]; then
@@ -290,7 +287,6 @@ main() {
 
     if "$multi_user"; then
       out "user (用户): $user"
-      # check user-specific CLI if not already found
       if ! "$cli_found"; then
         local user_cli
         user_cli=$(check_cli_for_user "$home_dir") || true
@@ -313,7 +309,6 @@ main() {
         ports_to_check="$ports_to_check $configured_port"
       fi
     else
-      # single user mode - check user CLI
       if ! "$cli_found"; then
         local user_cli
         user_cli=$(check_cli_for_user "$home_dir") || true
@@ -324,7 +319,7 @@ main() {
         fi
       fi
       if ! "$cli_found"; then
-        out "cli (命令行工具): not-found"
+        out "cli (命令行工具): not-found (未找到)"
         out "cli-version (工具版本): n/a"
       fi
       local state_result
@@ -340,9 +335,8 @@ main() {
     fi
   done
 
-  # print cli not-found for multi-user if none found
   if "$multi_user" && ! "$cli_found"; then
-    out "cli (命令行工具): not-found"
+    out "cli (命令行工具): not-found (未找到)"
     out "cli-version (工具版本): n/a"
   fi
 
@@ -363,7 +357,6 @@ main() {
   process_result=$(check_process) && process_running=true || process_running=false
   out "process (进程): $process_result"
 
-  # check all unique ports (default + any configured in user configs)
   local unique_ports listening_port=""
   unique_ports=$(echo "$ports_to_check" | tr ' ' '\n' | sort -u | tr '\n' ' ')
   for port in $unique_ports; do
@@ -374,9 +367,9 @@ main() {
     fi
   done
   if "$port_listening"; then
-    out "gateway-port (网关端口): $listening_port"
+    out "gateway-port (网关端口): $listening_port (正在监听)"
   else
-    out "gateway-port (网关端口): not-listening"
+    out "gateway-port (网关端口): not-listening (未监听)"
   fi
 
   local docker_containers docker_images docker_running=false docker_installed=false
@@ -385,7 +378,7 @@ main() {
     docker_running=true
     out "docker-container (Docker容器): $docker_containers"
   else
-    out "docker-container (Docker容器): not-found"
+    out "docker-container (Docker容器): not-found (未找到)"
   fi
 
   docker_images=$(check_docker_images)
@@ -393,20 +386,17 @@ main() {
     docker_installed=true
     out "docker-image (Docker镜像): $docker_images"
   else
-    out "docker-image (Docker镜像): not-found"
+    out "docker-image (Docker镜像): not-found (未找到)"
   fi
 
   local installed=false running=false
-
   if "$cli_found" || "$app_found" || "$state_found" || "$docker_installed"; then
     installed=true
   fi
-
   if "$service_running" || "$port_listening" || "$docker_running" || "$process_running"; then
     running=true
   fi
 
-  # exit codes: 0=not-installed (clean), 1=found (non-compliant), 2=error
   if ! "$installed"; then
     echo "summary (检测汇总): not-installed (未安装)"
     printf "%s" "$output"
@@ -421,7 +411,5 @@ main() {
     exit 1
   fi
 }
-
-
 
 main

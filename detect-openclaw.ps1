@@ -1,34 +1,34 @@
 # OpenClaw Detection Script for MDM deployment (Windows)
-# Exit codes: 0=not-installed (clean), 1=found (non-compliant), 2=error
+# Version: v1.1 - Ultimate Compatibility Build (PS 2.0+)
+# All source code is 100% ASCII to prevent parser compatibility.
 
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Continue"
 
-# 强制旧版 PowerShell 使用 UTF-8 编码
+# Encoding Setup for Legacy PowerShell
 if ($PSVersionTable.PSVersion.Major -le 5) {
     try {
-        & chcp 65001 | Out-Null
         $utf8 = New-Object System.Text.UTF8Encoding $false
         $OutputEncoding = $utf8
         [Console]::OutputEncoding = $utf8
-        [Console]::InputEncoding = $utf8
-    } catch {}
+    } catch { }
 }
 
-# 使用 Unicode 转义序列定义中文词典，确保脚本源码为纯 ASCII，防止 iex 乱码报错
+# Unicode Dictionary (All characters escaped)
 $CN = @{
     'EnvInfo'    = "$([char]0x73af)$([char]0x5883)$([char]0x57fa)$([char]0x672c)$([char]0x4fe1)$([char]0x606f)" # 环境基本信息
     'OSVer'      = "$([char]0x64cd)$([char]0x4f5c)$([char]0x7cfb)$([char]0x7edf)$([char]0x7248)$([char]0x672c)" # 操作系统版本
     'User'       = "$([char]0x5f53)$([char]0x524d)$([char]0x7528)$([char]0x6237)" # 当前用户
+    'UserTag'    = "$([char]0x7528)$([char]0x6237)" # 用户
     'IP'         = "IP$([char]0x5730)$([char]0x5740)" # IP地址
     'Summary'    = "$([char]0x68c0)$([char]0x6d4b)$([char]0x6c47)$([char]0x603b)" # 检测汇总
     'NotInst'    = "$([char]0x672a)$([char]0x5b89)$([char]0x88c5)" # 未安装
     'InstRun'    = "$([char]0x5df2)$([char]0x5b89)$([char]0x88c5)$([char]0x4e14)$([char]0x8fd0)$([char]0x884c)$([char]0x4e2d)" # 已安装且运行中
-    'InstNotRun' = "$([char]0x5df2)$([char]0x5b89)$([char]0x88c5)$([char]0x4e46)$([char]0x672a)$([char]0x8fd0)$([char]0x884c)" # 已安装但未运行
+    'InstNotRun' = "$([char]0x5df2)$([char]0x5b89)$([char]0x88c5)$([char]0x4f46)$([char]0x672a)$([char]0x8fd0)$([char]0x884c)" # 已安装但未运行
     'Platform'   = "$([char]0x5e73)$([char]0x53f0)" # 平台
     'CLI'        = "$([char]0x547d)$([char]0x4ee4)$([char]0x884c)$([char]0x5de5)$([char]0x5177)" # 命令行工具
     'CLIVer'     = "$([char]0x5de5)$([char]0x5177)$([char]0x7248)$([char]0x672c)" # 工具版本
     'App'        = "$([char]0x5e94)$([char]0x7528)$([char]0x7a0b)$([char]0x5e8f)" # 应用程序
-    'StateDir'   = "$([char]0x72b6)$([char]0x6001)$([char]0x76ee)$([char]0x5f53)$([char]0x5f55)" # 状态目录
+    'StateDir'   = "$([char]0x72b6)$([char]0x6001)$([char]0x76ee)$([char]0x5f55)" # 状态目录
     'Config'     = "$([char]0x914d)$([char]0x7f6e)$([char]0x6587)$([char]0x4ef6)" # 配置文件
     'Port'       = "$([char]0x914d)$([char]0x7f6e)$([char]0x7aef)$([char]0x53e3)" # 配置端口
     'Service'    = "$([char]0x7f51)$([char]0x5173)$([char]0x670d)$([char]0x52a1)" # 网关服务
@@ -37,195 +37,126 @@ $CN = @{
     'DockerCon'  = "Docker$([char]0x5bb9)$([char]0x5668)" # Docker容器
     'DockerImg'  = "Docker$([char]0x955c)$([char]0x50cf)" # Docker镜像
     'ExitMsg'    = "$([char]0x68c0)$([char]0x6d4b)$([char]0x5b8c)$([char]0x6210)$([char]0xff0c)$([char]0x6309)$([char]0x56de)$([char]0x8f66)$([char]0x952e)$([char]0x9000)$([char]0x51fa)" # 检测完成，按回车键退出
+    'NotFound'   = "not-found ($([char]0x672a)$([char]0x627e)$([char]0x5230))" # not-found (未找到)
+    'NotListen'  = "not-listening ($([char]0x672a)$([char]0x76d1)$([char]0x542c))" # not-listening (未监听)
+    'NotSched'   = "not-scheduled ($([char]0x672a)$([char]0x8ba1)$([char]0x5212))" # not-scheduled (未计划)
+    'Running'    = "running ($([char]0x8fd0)$([char]0x884c)$([char]0x4e2d))" # running (运行中)
+    'NotRunning' = "not-running ($([char]0x672a)$([char]0x8fd0)$([char]0x884c))" # not-running (未运行)
 }
 
-$script:Profile = $env:OPENCLAW_PROFILE
-$Port = if ($env:OPENCLAW_GATEWAY_PORT) { $env:OPENCLAW_GATEWAY_PORT } else { 18789 }
-$script:Output = New-Object System.Collections.ArrayList
-
-function Show-Banner {
-    Write-Output "OpenClaw Detection Script (v1.1)`n"
+function Write-Safe {
+    param($Message, $Color)
+    if ($Color) {
+        try { Write-Host $Message -ForegroundColor $Color } catch { Write-Output $Message }
+    } else {
+        try { Write-Host $Message } catch { Write-Output $Message }
+    }
 }
 
-Show-Banner
+$script:ProfileName = $env:OPENCLAW_PROFILE
+$script:DefaultPort = 18789
+if ($env:OPENCLAW_GATEWAY_PORT) {
+    try { $script:DefaultPort = [int]$env:OPENCLAW_GATEWAY_PORT } catch { }
+}
+$script:OutputList = @()
+
+function Add-ToOutput {
+    param($Line)
+    $script:OutputList += $Line
+}
 
 function Show-EnvInfo {
-    Write-Host "--- Environment Information ($($CN.EnvInfo)) ---"
+    Write-Safe "`n--- Environment Information ($($CN.EnvInfo)) ---"
+    $osInfo = "Unknown"
     try {
-        $os = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
-        Write-Host "OS Version ($($CN.OSVer)): $($os.Caption) ($($os.Version))"
+        $osObj = Get-WmiObject Win32_OperatingSystem -ErrorAction SilentlyContinue
+        $osInfo = $osObj.Caption + " (" + $osObj.Version + ")"
     } catch {
-        try {
-            $os = Get-WmiObject Win32_OperatingSystem -ErrorAction Stop
-            Write-Host "OS Version ($($CN.OSVer)): $($os.Caption) ($($os.Version))"
-        } catch {
-            Write-Host "OS Version ($($CN.OSVer)): $([System.Environment]::OSVersion)"
-        }
+        $osInfo = [System.Environment]::OSVersion.ToString()
     }
-    $currentUser = [Security.Principal.WindowsIdentity]::GetCurrent().Name
-    $isAdmin = if ([Security.Principal.WindowsIdentity]::GetCurrent().Groups -match 'S-1-5-32-544') { "Admin" } else { "User" }
-    Write-Host "Current User ($($CN.User)): $currentUser ($isAdmin)"
-    
+    Write-Safe ("OS Version (" + $CN.OSVer + "): " + $osInfo)
+    $currUser = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+    $isAdmin = "User"
+    if ([Security.Principal.WindowsIdentity]::GetCurrent().Groups -match 'S-1-5-32-544') { $isAdmin = "Admin" }
+    Write-Safe ("Current User (" + $CN.User + "): " + $currUser + " (" + $isAdmin + ")")
+    $v4List = ""; $v6List = ""
     try {
-        if (Get-Command Get-NetIPAddress -ErrorAction SilentlyContinue) {
-            $ips = Get-NetIPAddress | Where-Object { 
-                $_.InterfaceAlias -notmatch 'Loopback' -and 
-                $_.IPAddress -notmatch '^169\.254' -and 
-                $_.IPAddress -notmatch '^fe80' 
-            }
-            $ipv4List = ($ips | Where-Object { $_.AddressFamily -eq 'IPv4' }).IPAddress -join ", "
-            $ipv6List = ($ips | Where-Object { $_.AddressFamily -eq 'IPv6' }).IPAddress -join ", "
-        } else {
-            $configs = Get-WmiObject Win32_NetworkAdapterConfiguration | Where-Object { $_.IPEnabled -eq $true }
-            $ipv4s = New-Object System.Collections.ArrayList
-            $ipv6s = New-Object System.Collections.ArrayList
-            foreach ($conf in $configs) {
-                foreach ($addr in $conf.IPAddress) {
-                    if ($addr -match '^([0-9]{1,3}\.){3}[0-9]{1,3}$') {
-                        if ($addr -notmatch '^127\.' -and $addr -notmatch '^169\.254') { [void]$ipv4s.Add($addr) }
-                    } else {
-                        if ($addr -notmatch '^::1' -and $addr -notmatch '^fe80') { [void]$ipv6s.Add($addr) }
+        $configs = Get-WmiObject Win32_NetworkAdapterConfiguration | Where-Object { $_.IPEnabled -eq $true }
+        foreach ($c in $configs) {
+            foreach ($addr in $c.IPAddress) {
+                if ($addr -match '^([0-9]{1,3}\.){3}[0-9]{1,3}$') {
+                    if ($addr -notmatch '^127\.' -and $addr -notmatch '^169\.254') {
+                        if ($v4List) { $v4List += ", " }
+                        $v4List += $addr
+                    }
+                } else {
+                    if ($addr -notmatch '^::1' -and $addr -notmatch '^fe80') {
+                        if ($v6List) { $v6List += ", " }
+                        $v6List += $addr
                     }
                 }
             }
-            $ipv4List = $ipv4s -join ", "
-            $ipv6List = $ipv6s -join ", "
         }
-        
-        Write-Host "IP Address ($($CN.IP)):"
-        Write-Host "  IPv4: $(if ($ipv4List) { $ipv4List } else { 'N/A' })"
-        Write-Host "  IPv6: $(if ($ipv6List) { $ipv6List } else { 'N/A' })"
-    } catch {
-        Write-Host "IP Address ($($CN.IP)): Unknown"
-    }
-    Write-Host "-------------------------------`n"
-}
-
-Show-EnvInfo
-
-function Out {
-    param([string]$Line)
-    [void]$script:Output.Add($Line)
+    } catch { }
+    Write-Safe ("IP Address (" + $CN.IP + "):")
+    Write-Safe ("  IPv4: " + $(if ($v4List) { $v4List } else { 'N/A' }))
+    Write-Safe ("  IPv6: " + $(if ($v6List) { $v6List } else { 'N/A' }))
+    Write-Safe "-------------------------------"
 }
 
 function Get-StateDir {
-    param([string]$HomeDir)
-    if ($script:Profile) {
-        return Join-Path $HomeDir ".openclaw-$($script:Profile)"
-    }
+    param($HomeDir)
+    if ($script:ProfileName) { return Join-Path $HomeDir (".openclaw-" + $script:ProfileName) }
     return Join-Path $HomeDir ".openclaw"
 }
 
 function Get-UsersToCheck {
-    if ([Security.Principal.WindowsIdentity]::GetCurrent().Groups -match 'S-1-5-32-544') {
-        $excluded = @('Public', 'Default', 'Default User', 'All Users')
-        Get-ChildItem "C:\Users" -Directory | Where-Object { $excluded -notcontains $_.Name } | ForEach-Object { $_.Name }
-    } else {
-        $env:USERNAME
-    }
-}
-
-function Get-HomeDir {
-    param([string]$User)
-    return "C:\Users\$User"
-}
-
-function Test-CliInPath {
+    $foundUsers = @()
     try {
-        $cmd = Get-Command openclaw -ErrorAction SilentlyContinue
-        if ($cmd) { return $cmd.Source }
-    } catch {}
-    return $null
-}
-
-function Test-CliGlobal {
-    $locations = @(
-        "C:\Program Files\openclaw\openclaw.exe",
-        "C:\Program Files (x86)\openclaw\openclaw.exe"
-    )
-    foreach ($loc in $locations) {
-        if (Test-Path $loc) { return $loc }
-    }
-    return $null
-}
-
-function Test-CliForUser {
-    param([string]$HomeDir)
-    $locations = @(
-        (Join-Path $HomeDir "AppData\Local\Programs\openclaw\openclaw.exe"),
-        (Join-Path $HomeDir "AppData\Roaming\npm\openclaw.cmd"),
-        (Join-Path $HomeDir "AppData\Local\pnpm\openclaw.cmd"),
-        (Join-Path $HomeDir ".volta\bin\openclaw.exe"),
-        (Join-Path $HomeDir "scoop\shims\openclaw.exe")
-    )
-    foreach ($loc in $locations) {
-        if (Test-Path $loc) { return $loc }
-    }
-    return $null
+        if ([Security.Principal.WindowsIdentity]::GetCurrent().Groups -match 'S-1-5-32-544') {
+            $excluded = @('Public', 'Default', 'Default User', 'All Users')
+            $userDirs = Get-ChildItem "C:\Users" | Where-Object { $_.PSIsContainer }
+            foreach ($d in $userDirs) {
+                if ($excluded -notcontains $d.Name) { $foundUsers += $d.Name }
+            }
+            if ($foundUsers.Length -gt 0) { return $foundUsers }
+        }
+    } catch { }
+    return ,$env:USERNAME
 }
 
 function Get-CliVersion {
-    param([string]$CliPath)
+    param($CliPath)
     try {
-        $version = & $CliPath --version 2>$null | Select-Object -First 1
-        if ($version) { return $version }
-    } catch {}
+        $ver = & $CliPath --version 2>$null | Select-Object -First 1
+        if ($ver) { return $ver }
+    } catch { }
     return "unknown"
 }
 
-function Test-StateDir {
-    param([string]$Path)
-    return Test-Path $Path -PathType Container
-}
-
-function Test-Config {
-    param([string]$StateDir)
-    return Test-Path (Join-Path $StateDir "openclaw.json") -PathType Leaf
-}
-
-function Get-ConfiguredPort {
-    param([string]$ConfigFile)
-    if (Test-Path $ConfigFile) {
-        try {
-            $content = Get-Content $ConfigFile -Raw
-            if ($content -match '"port"\s*:\s*(\d+)') { return $matches[1] }
-        } catch {}
-    }
-    return $null
-}
-
-function Test-ScheduledTask {
-    $taskName = if ($script:Profile) { "OpenClaw Gateway $($script:Profile)" } else { "OpenClaw Gateway" }
-    try {
-        $null = schtasks /Query /TN $taskName 2>$null
-        if ($LASTEXITCODE -eq 0) { return $taskName }
-    } catch {}
-    return $null
-}
-
-function Test-Process {
-    try {
-        $proc = Get-Process -Name "openclaw" -ErrorAction SilentlyContinue
-        if ($proc) { return "running" }
-    } catch {}
-    return "not-running"
-}
-
 function Test-GatewayPort {
-    param([int]$PortNum)
+    param($PortNum)
+    $success = $false
     try {
-        $result = Test-NetConnection -ComputerName localhost -Port $PortNum -WarningAction SilentlyContinue
-        return $result.TcpTestSucceeded
-    } catch { return $false }
+        $tcp = New-Object System.Net.Sockets.TcpClient
+        $asyncResult = $tcp.BeginConnect("127.0.0.1", $PortNum, $null, $null)
+        $wait = $asyncResult.AsyncWaitHandle.WaitOne(100, $false)
+        if ($wait) {
+            $tcp.EndConnect($asyncResult)
+            $success = $true
+        }
+        $tcp.Close()
+    } catch { $success = $false }
+    return $success
 }
 
 function Get-DockerContainers {
     try {
         $cmd = Get-Command docker -ErrorAction SilentlyContinue
         if (-not $cmd) { return $null }
-        $containers = docker ps --format '{{.Names}} ({{.Image}})' 2>$null | Select-String -Pattern "openclaw" -SimpleMatch
-        if ($containers) { return ($containers -join ", ") }
-    } catch {}
+        $res = docker ps --format '{{.Names}} ({{.Image}})' 2>$null | Select-String -Pattern "openclaw" -SimpleMatch
+        if ($res) { return ($res -join ", ") }
+    } catch { }
     return $null
 }
 
@@ -233,109 +164,157 @@ function Get-DockerImages {
     try {
         $cmd = Get-Command docker -ErrorAction SilentlyContinue
         if (-not $cmd) { return $null }
-        $images = docker images --format '{{.Repository}}:{{.Tag}}' 2>$null | Select-String -Pattern "openclaw" -SimpleMatch
-        if ($images) { return ($images -join ", ") }
-    } catch {}
+        $res = docker images --format '{{.Repository}}:{{.Tag}}' 2>$null | Select-String -Pattern "openclaw" -SimpleMatch
+        if ($res) { return ($res -join ", ") }
+    } catch { }
     return $null
 }
 
 function Main {
-    $cliFound = $false; $stateFound = $false; $serviceRunning = $false; $portListening = $false; $processRunning = $false
-    Out "platform ($($CN.Platform)): windows"
+    Write-Safe "OpenClaw Detection Script (v1.1)"
+    Show-EnvInfo
 
-    $cliPath = Test-CliInPath
-    if (-not $cliPath) { $cliPath = Test-CliGlobal }
-    if ($cliPath) {
+    $cliFound = $false; $stateFound = $false; $serviceRunning = $false; $portListening = $false; $processRunning = $false
+    $dockerRunning = $false; $dockerInstalled = $false
+    Add-ToOutput ("platform (" + $CN.Platform + "): windows")
+
+    $gCli = $null
+    $cCheck = Get-Command openclaw -ErrorAction SilentlyContinue
+    if ($cCheck) { $gCli = $cCheck.Definition }
+    if (-not $gCli) {
+        $locs = @("C:\Program Files\openclaw\openclaw.exe", "C:\Program Files (x86)\openclaw\openclaw.exe")
+        foreach ($l in $locs) { if (Test-Path $l) { $gCli = $l; break } }
+    }
+    if ($gCli) {
         $cliFound = $true
-        Out "cli ($($CN.CLI)): $cliPath"
-        Out "cli-version ($($CN.CLIVer)): $(Get-CliVersion $cliPath)"
+        Add-ToOutput ("cli (" + $CN.CLI + "): " + $gCli)
+        Add-ToOutput ("cli-version (" + $CN.CLIVer + "): " + (Get-CliVersion $gCli))
     }
 
-    $users = @(Get-UsersToCheck)
-    $multiUser = $users.Count -gt 1
-    $portsToCheck = @($Port)
+    $allUsersList = Get-UsersToCheck
+    $isMulti = $false
+    if (@($allUsersList).Count -gt 1) { $isMulti = $true }
+    $portsToCheck = @($script:DefaultPort)
 
-    foreach ($user in $users) {
-        $homeDir = Get-HomeDir $user
-        $stateDir = Get-StateDir $homeDir
-        $configFile = Join-Path $stateDir "openclaw.json"
+    foreach ($u in $allUsersList) {
+        $hDir = "C:\Users\$u"
+        $sDir = Get-StateDir $hDir
+        $cFile = Join-Path $sDir "openclaw.json"
+        $uHeaderDone = $false
 
-        if ($multiUser) {
-            Out "user ($([char]0x7528)$([char]0x6237)): $user"
-            if (-not $cliFound) {
-                $userCli = Test-CliForUser $homeDir
-                if ($userCli) {
-                    $cliFound = $true
-                    Out "  cli ($($CN.CLI)): $userCli"
-                    Out "  cli-version ($($CN.CLIVer)): $(Get-CliVersion $userCli)"
-                }
+        # Check user-specific CLI paths regardless of global findings
+        $uLocs = @(
+            (Join-Path $hDir "AppData\Local\Programs\openclaw\openclaw.exe"),
+            (Join-Path $hDir "AppData\Roaming\npm\openclaw.cmd"),
+            (Join-Path $hDir "AppData\Local\pnpm\openclaw.cmd"),
+            (Join-Path $hDir ".volta\bin\openclaw.exe"),
+            (Join-Path $hDir "scoop\shims\openclaw.exe")
+        )
+        foreach ($ul in $uLocs) {
+            if (Test-Path $ul) {
+                $cliFound = $true
+                if ($isMulti) { Add-ToOutput ("user (" + $CN.UserTag + "): " + $u); $uHeaderDone = $true }
+                Add-ToOutput ("  cli (" + $CN.CLI + "): " + $ul)
+                Add-ToOutput ("  cli-version (" + $CN.CLIVer + "): " + (Get-CliVersion $ul))
+                break
             }
-            if (Test-StateDir $stateDir) { Out "  state-dir ($($CN.StateDir)): $stateDir"; $stateFound = $true } else { Out "  state-dir ($($CN.StateDir)): not-found" }
-            if (Test-Config $stateDir) { Out "  config ($($CN.Config)): $configFile" } else { Out "  config ($($CN.Config)): not-found" }
-            $configPort = Get-ConfiguredPort $configFile
-            if ($configPort) { Out "  config-port ($($CN.Port)): $configPort"; $portsToCheck += [int]$configPort }
+        }
+
+        $sExist = Test-Path $sDir
+        if ($sExist) { $stateFound = $true }
+
+        if ($isMulti) {
+            if ($sExist) {
+                if (-not $uHeaderDone) { Add-ToOutput ("user (" + $CN.UserTag + "): " + $u); $uHeaderDone = $true }
+                Add-ToOutput ("  state-dir (" + $CN.StateDir + "): " + $sDir)
+                if (Test-Path $cFile) {
+                    Add-ToOutput ("  config (" + $CN.Config + "): " + $cFile)
+                    try {
+                        $txt = Get-Content $cFile | Out-String
+                        if ($txt -match '"port"\s*:\s*(\d+)') {
+                            $pNum = [int]$matches[1]
+                            Add-ToOutput ("  config-port (" + $CN.Port + "): " + $pNum)
+                            $fIn = $false
+                            foreach($pt in $portsToCheck) { if($pt -eq $pNum) { $fIn = $true } }
+                            if(-not $fIn) { $portsToCheck += $pNum }
+                        }
+                    } catch { }
+                } else { Add-ToOutput ("  config (" + $CN.Config + "): " + $CN.NotFound) }
+            }
         } else {
-            if (-not $cliFound) {
-                $userCli = Test-CliForUser $homeDir
-                if ($userCli) {
-                    $cliFound = $true
-                    Out "cli ($($CN.CLI)): $userCli"
-                    Out "cli-version ($($CN.CLIVer)): $(Get-CliVersion $userCli)"
-                }
-            }
-            if (-not $cliFound) { Out "cli ($($CN.CLI)): not-found"; Out "cli-version ($($CN.CLIVer)): n/a" }
-            if (Test-StateDir $stateDir) { Out "state-dir ($($CN.StateDir)): $stateDir"; $stateFound = $true } else { Out "state-dir ($($CN.StateDir)): not-found" }
-            if (Test-Config $stateDir) { Out "config ($($CN.Config)): $configFile" } else { Out "config ($($CN.Config)): not-found" }
-            $configPort = Get-ConfiguredPort $configFile
-            if ($configPort) { Out "config-port ($($CN.Port)): $configPort"; $portsToCheck += [int]$configPort }
+            Add-ToOutput ("state-dir (" + $CN.StateDir + "): " + $(if ($sExist) { $sDir } else { $CN.NotFound }))
+            if (Test-Path $cFile) {
+                Add-ToOutput ("config (" + $CN.Config + "): " + $cFile)
+                try {
+                    $txt = Get-Content $cFile | Out-String
+                    if ($txt -match '"port"\s*:\s*(\d+)') {
+                        $pNum = [int]$matches[1]
+                        Add-ToOutput ("config-port (" + $CN.Port + "): " + $pNum)
+                        if ($portsToCheck -notcontains $pNum) { $portsToCheck += $pNum }
+                    }
+                } catch { }
+            } else { Add-ToOutput ("config (" + $CN.Config + "): " + $CN.NotFound) }
         }
     }
 
-    if ($multiUser -and -not $cliFound) { Out "cli ($($CN.CLI)): not-found"; Out "cli-version ($($CN.CLIVer)): n/a" }
+    if (-not $cliFound) {
+        Add-ToOutput ("cli (" + $CN.CLI + "): " + $CN.NotFound)
+        if (-not $isMulti) { Add-ToOutput ("cli-version (" + $CN.CLIVer + "): n/a") }
+    }
 
-    $taskResult = Test-ScheduledTask
-    if ($taskResult) { Out "gateway-service ($($CN.Service)): $taskResult"; $serviceRunning = $true } else { Out "gateway-service ($($CN.Service)): not-scheduled" }
+    $tName = "OpenClaw Gateway"
+    if ($script:ProfileName) { $tName = "OpenClaw Gateway " + $script:ProfileName }
+    $tCheck = schtasks /Query /TN $tName 2>$null
+    if ($LASTEXITCODE -eq 0) { $serviceRunning = $true; Add-ToOutput ("gateway-service (" + $CN.Service + "): " + $tName) }
+    else { Add-ToOutput ("gateway-service (" + $CN.Service + "): " + $CN.NotSched) }
 
-    $processResult = Test-Process
-    if ($processResult -eq "running") { Out "process ($($CN.Process)): running"; $processRunning = $true } else { Out "process ($($CN.Process)): not-running" }
+    $pCheck = Get-Process -Name "openclaw" -ErrorAction SilentlyContinue
+    if ($pCheck) { $processRunning = $true; Add-ToOutput ("process (" + $CN.Process + "): " + $CN.Running) }
+    else { Add-ToOutput ("process (" + $CN.Process + "): " + $CN.NotRunning) }
 
-    $uniquePorts = $portsToCheck | Sort-Object -Unique
-    $listeningPort = $null
-    foreach ($p in $uniquePorts) { if (Test-GatewayPort $p) { $portListening = $true; $listeningPort = $p; break } }
-    if ($portListening) { Out "gateway-port ($($CN.GwPort)): $listeningPort" } else { Out "gateway-port ($($CN.GwPort)): not-listening" }
+    $fPortStr = $CN.NotListen
+    foreach ($pt in $portsToCheck) {
+        if (Test-GatewayPort $pt) {
+            $portListening = $true
+            $fPortStr = $pt.ToString() + " ($([char]0x6b63)$([char]0x5728)$([char]0x76d1)$([char]0x542c))" # (正在监听)
+            break
+        }
+    }
+    Add-ToOutput ("gateway-port (" + $CN.GwPort + "): " + $fPortStr)
 
-    $dockerContainers = Get-DockerContainers
-    if ($dockerContainers) { Out "docker-container ($($CN.DockerCon)): $dockerContainers"; $dockerRunning = $true } else { Out "docker-container ($($CN.DockerCon)): not-found" }
+    $dCons = Get-DockerContainers
+    if ($dCons) { $dockerRunning = $true; Add-ToOutput ("docker-container (" + $CN.DockerCon + "): " + $dCons) }
+    else { Add-ToOutput ("docker-container (" + $CN.DockerCon + "): " + $CN.NotFound) }
 
-    $dockerImages = Get-DockerImages
-    if ($dockerImages) { Out "docker-image ($($CN.DockerImg)): $dockerImages"; $dockerInstalled = $true } else { Out "docker-image ($($CN.DockerImg)): not-found" }
+    $dImgs = Get-DockerImages
+    if ($dImgs) { $dockerInstalled = $true; Add-ToOutput ("docker-image (" + $CN.DockerImg + "): " + $dImgs) }
+    else { Add-ToOutput ("docker-image (" + $CN.DockerImg + "): " + $CN.NotFound) }
 
-    $installed = $cliFound -or $stateFound -or $dockerInstalled
-    $running = $serviceRunning -or $portListening -or $dockerRunning -or $processRunning
+    $isInst = ($cliFound -or $stateFound -or $dockerInstalled)
+    $isRun = ($serviceRunning -or $portListening -or $processRunning -or $dockerRunning)
 
-    if (-not $installed) {
-        Write-Host "summary ($($CN.Summary)): not-installed ($($CN.NotInst))"
-        $script:Output | ForEach-Object { Write-Host $_ }
+    if (-not $isInst) {
+        Write-Safe ("`nsummary (" + $CN.Summary + "): not-installed (" + $CN.NotInst + ")")
         $exitCode = 0
-    } elseif ($running) {
-        Write-Host "summary ($($CN.Summary)): installed-and-running ($($CN.InstRun))"
-        $script:Output | ForEach-Object { Write-Host $_ }
+    } elseif ($isRun) {
+        Write-Safe ("`nsummary (" + $CN.Summary + "): installed-and-running (" + $CN.InstRun + ")")
         $exitCode = 1
     } else {
-        Write-Host "summary ($($CN.Summary)): installed-not-running ($($CN.InstNotRun))"
-        $script:Output | ForEach-Object { Write-Host $_ }
+        Write-Safe ("`nsummary (" + $CN.Summary + "): installed-not-running (" + $CN.InstNotRun + ")")
         $exitCode = 1
     }
 
-    if ($Host.Name -eq "ConsoleHost") {
-        Write-Host "`n[Detection Completed] Press Enter to exit ($($CN.ExitMsg))..." -ForegroundColor Cyan
-        Read-Host
+    foreach ($line in $script:OutputList) { Write-Safe $line }
+
+    if ($Host.Name -match "ConsoleHost|Default Host") {
+        Write-Safe ("`n[Detection Completed] Press Enter to exit (" + $CN.ExitMsg + ")...") "Cyan"
+        $null = Read-Host
     }
     exit $exitCode
 }
 
 try { Main } catch {
-    Write-Host "summary ($($CN.Summary)): error"
-    Write-Host "error: $_"
+    Write-Output ("summary (" + $CN.Summary + "): error")
+    Write-Output ("error: " + $_)
     exit 2
 }
